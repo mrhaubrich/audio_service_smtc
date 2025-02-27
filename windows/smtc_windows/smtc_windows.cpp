@@ -1,9 +1,12 @@
 #include <windows.h>
+// Add the following WinRT includes at the beginning
+#include <winrt/base.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Media.h>
 #include <winrt/Windows.Media.Playback.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <winrt/Windows.Foundation.Collections.h>
+#include "smtc_windows.h"
 #include <string>
 #include <functional>
 #include <iostream>
@@ -13,26 +16,15 @@ using namespace winrt;
 using namespace Windows::Media;
 using namespace Windows::Foundation;
 
-// C interface for Flutter plugin
-extern "C" {
-    __declspec(dllexport) void* CreateSMTCHandler(const char* identity);
-    __declspec(dllexport) void DisposeSMTCHandler(void* handler);
-    __declspec(dllexport) void UpdatePlaybackStatus(void* handler, const char* status);
-    __declspec(dllexport) void UpdateMetadata(void* handler, const char* title, const char* artist, 
-        const char* album, int64_t duration, const char* albumArtUrl);
-    __declspec(dllexport) void SetCallbacks(void* handler, 
-        std::function<void(const char*)> controlCallback,
-        std::function<void(int64_t)> positionCallback);
-}
-
-class SMTCHandler {
+// Implementation class to hide WinRT details
+class SMTCHandlerImpl {
 public:
-    SMTCHandler(const std::string& identity) : _identity(identity) {
+    SMTCHandlerImpl(const std::string& identity) : _identity(identity) {
         init_apartment();
         InitializeControls();
     }
 
-    ~SMTCHandler() {
+    ~SMTCHandlerImpl() {
         // Clean up resources
         try {
             if (_controls) {
@@ -99,9 +91,11 @@ public:
         }
     }
 
-    void SetCallbacks(std::function<void(const char*)> controlCb, 
-                      std::function<void(int64_t)> positionCb) {
+    void SetControlCallback(std::function<void(const std::string&)> controlCb) {
         _controlCallback = controlCb;
+    }
+    
+    void SetPositionCallback(std::function<void(int64_t)> positionCb) {
         _positionCallback = positionCb;
     }
 
@@ -111,14 +105,14 @@ private:
     SystemMediaTransportControlsDisplayUpdater _displayUpdater{ nullptr };
     winrt::event_token _buttonPressedToken{};
     
-    std::function<void(const char*)> _controlCallback;
+    std::function<void(const std::string&)> _controlCallback;
     std::function<void(int64_t)> _positionCallback;
     std::mutex _callbackMutex;
 
     void InitializeControls() {
         try {
             // Get the system media transport controls for the current view
-            _controls = SystemMediaTransportControlsInterop::GetForCurrentView();
+            _controls = SystemMediaTransportControls::GetForCurrentView();
             
             if (!_controls) {
                 std::cerr << "Failed to get SMTC for current view" << std::endl;
@@ -165,7 +159,7 @@ private:
                 
                 std::lock_guard<std::mutex> lock(_callbackMutex);
                 if (_controlCallback) {
-                    _controlCallback(command.c_str());
+                    _controlCallback(command);
                 }
             });
         }
@@ -175,10 +169,76 @@ private:
     }
 };
 
-// Export implementation
+// SmtcWindows implementation
+SmtcWindows::SmtcWindows() : _initialized(false) {}
+
+SmtcWindows::~SmtcWindows() {
+    // Impl will be cleaned up by unique_ptr
+}
+
+bool SmtcWindows::Initialize(const std::string& identity) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    if (_initialized) return true;
+    
+    try {
+        _impl = std::make_unique<SMTCHandlerImpl>(identity);
+        _initialized = true;
+        return true;
+    }
+    catch (const std::exception& ex) {
+        std::cerr << "Failed to initialize SMTC: " << ex.what() << std::endl;
+        return false;
+    }
+}
+
+bool SmtcWindows::UpdatePlaybackStatus(const std::string& status) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    if (!_initialized || !_impl) return false;
+    
+    try {
+        _impl->UpdatePlaybackState(status);
+        return true;
+    }
+    catch (const std::exception& ex) {
+        std::cerr << "Error updating playback status: " << ex.what() << std::endl;
+        return false;
+    }
+}
+
+bool SmtcWindows::UpdateMetadata(const std::string& title, const std::string& artist, 
+                               const std::string& album, int64_t duration, 
+                               const std::string& albumArtUrl) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    if (!_initialized || !_impl) return false;
+    
+    try {
+        _impl->UpdateMetadata(title, artist, album, duration, albumArtUrl);
+        return true;
+    }
+    catch (const std::exception& ex) {
+        std::cerr << "Error updating metadata: " << ex.what() << std::endl;
+        return false;
+    }
+}
+
+void SmtcWindows::SetControlCallback(std::function<void(const std::string&)> callback) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    if (_initialized && _impl) {
+        _impl->SetControlCallback(callback);
+    }
+}
+
+void SmtcWindows::SetPositionCallback(std::function<void(int64_t)> callback) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    if (_initialized && _impl) {
+        _impl->SetPositionCallback(callback);
+    }
+}
+
+// C interface implementation
 void* CreateSMTCHandler(const char* identity) {
     try {
-        return new SMTCHandler(identity);
+        return new SMTCHandlerImpl(identity ? identity : "audio_service_smtc");
     }
     catch (...) {
         return nullptr;
@@ -187,20 +247,20 @@ void* CreateSMTCHandler(const char* identity) {
 
 void DisposeSMTCHandler(void* handler) {
     if (handler) {
-        delete static_cast<SMTCHandler*>(handler);
+        delete static_cast<SMTCHandlerImpl*>(handler);
     }
 }
 
 void UpdatePlaybackStatus(void* handler, const char* status) {
     if (handler && status) {
-        static_cast<SMTCHandler*>(handler)->UpdatePlaybackState(status);
+        static_cast<SMTCHandlerImpl*>(handler)->UpdatePlaybackState(status);
     }
 }
 
 void UpdateMetadata(void* handler, const char* title, const char* artist, 
                    const char* album, int64_t duration, const char* albumArtUrl) {
     if (handler && title) {
-        static_cast<SMTCHandler*>(handler)->UpdateMetadata(
+        static_cast<SMTCHandlerImpl*>(handler)->UpdateMetadata(
             title, 
             artist ? artist : "", 
             album ? album : "", 
@@ -213,6 +273,16 @@ void SetCallbacks(void* handler,
                  std::function<void(const char*)> controlCallback,
                  std::function<void(int64_t)> positionCallback) {
     if (handler) {
-        static_cast<SMTCHandler*>(handler)->SetCallbacks(controlCallback, positionCallback);
+        auto impl = static_cast<SMTCHandlerImpl*>(handler);
+        
+        if (controlCallback) {
+            impl->SetControlCallback([cb = controlCallback](const std::string& cmd) {
+                cb(cmd.c_str());
+            });
+        }
+        
+        if (positionCallback) {
+            impl->SetPositionCallback(positionCallback);
+        }
     }
 }
