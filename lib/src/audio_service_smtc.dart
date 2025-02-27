@@ -10,9 +10,9 @@ import 'package:audio_service_smtc/src/smtc_plugin.dart';
 /// {@template audio_service_smtc}
 /// Windows implementation for audio service using System Media Transport Controls.
 /// {@endtemplate}
-class AudioServiceSmtc implements AudioServicePlatform {
+class AudioServiceSmtcImpl implements AudioServicePlatform {
   /// {@macro audio_service_smtc}
-  AudioServiceSmtc();
+  AudioServiceSmtcImpl();
 
   SmtcPlugin? _smtcPlugin;
   AudioHandlerCallbacks? _handlerCallbacks;
@@ -21,7 +21,7 @@ class AudioServiceSmtc implements AudioServicePlatform {
   /// Register this implementation as the default instance
   static void registerWith() {
     if (Platform.isWindows) {
-      AudioServicePlatform.instance = AudioServiceSmtc();
+      AudioServicePlatform.instance = AudioServiceSmtcImpl();
     }
   }
 

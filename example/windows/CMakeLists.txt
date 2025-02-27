@@ -1,10 +1,10 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.14)
-project(audio_service_smtc LANGUAGES CXX)
+project(example LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "audio_service_smtc")
+set(BINARY_NAME "example")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
@@ -52,29 +52,6 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 
-# SMTC Windows implementation
-set(SMTC_WINDOWS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/smtc_windows")
-add_library(smtc_windows SHARED
-  "${SMTC_WINDOWS_DIR}/smtc_windows.cpp"
-  "${SMTC_WINDOWS_DIR}/smtc_windows.h"
-)
-
-# Include WinRT libraries
-target_link_libraries(smtc_windows 
-  PRIVATE 
-  WindowsApp.lib
-)
-
-# Set up the WinRT compilation flags
-target_compile_options(smtc_windows 
-  PRIVATE 
-  /await 
-  /std:c++17
-  /ZW
-)
-
-# Install the SMTC library
-install(TARGETS smtc_windows DESTINATION "${INSTALL_BUNDLE_LIB_DIR}" COMPONENT Runtime)
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
